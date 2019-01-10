@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+#tensorflow graphs
+*.h5
+
 # C extensions
 *.so
 
