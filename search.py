@@ -14,8 +14,13 @@ x_train = x_train.astype('float32') / 255.
 x_test = x_test.astype('float32') / 255.
 
 
-def get_image_database():
+def get_image_database(encoder):
     images = x_train.reshape((-1, 32, 32, 3))
+    return encoder.predict(images)
+
+
+def get_val_database(encoder):
+    images = x_test.reshape((-1, 32, 32, 3))
     return encoder.predict(images)
 
 
@@ -25,44 +30,55 @@ def load_image(path):
     return image.astype('float32') / 255.
 
 
-def get_random_image():
-    indexes = np.arange(0, x_test.shape[0], 1)
-    image = x_test[100]
-    return image
-
-
-def get_distance(image1, image2, type="MSE"):
-    size = reduce((lambda x, y: x * y), image1.shape)
-    if type is "MSE":
-        return np.sum((image1 - image2) ** 2) / float(size)
-    elif type is "L2":
-        return np.linalg.norm(image1 - image2)
-    elif type is "COS":
-        return np.dot(image1, image2) / (np.linalg.norm(image1) * np.linalg.norm(image2))
-
-
-def search_in_embeddings(input_image, nr_matches):
-    image_database = get_image_database()
-    enc_image = encoder.predict(input_image.reshape(-1, 32, 32, 3))
-    distance_to_images = np.array([get_distance(enc_image, image) for image in image_database])
-    distances_with_images = np.stack((distance_to_images, np.arange(0, x_train.shape[0], 1)), axis=-1)
-    top_sorted_distances = distances_with_images[distances_with_images[:, 0].argsort()[:nr_matches]]
-    top_images_index = top_sorted_distances[:, -1].astype(int)
-    print("Embeddings top", top_images_index)
-    return top_images_index
-
-
-def search_in_orig_images(input_image, nr_matches):
-    distance_to_images = np.array([get_distance(input_image, image) for image in x_train])
-    distances_with_images = np.stack((distance_to_images, np.arange(0, x_train.shape[0], 1)), axis=-1)
-    top_sorted_distances = distances_with_images[distances_with_images[:, 0].argsort()[:nr_matches]]
-    top_images_index = top_sorted_distances[:, -1].astype(int)
-    print("Originals top", top_images_index)
-    return top_images_index
-
-
 def resize_images(images, size=280):
     return np.array([cv2.resize(image, (size, size)) for image in images])
+
+
+def get_single_accuracy(target_index, top_images_index, rank):
+    true_positives = y_test[target_index] == y_train[top_images_index[:rank]]
+    return true_positives
+
+
+def save_results(*accuracies, model_name, metric, path):
+    accuracies = list(accuracies)
+    with open(path, 'a') as results_file:
+        results_file.write(
+            "Model name:{} Metric: {} top 5 accuracy:{} top 10 accuracy:{}\n".format(model_name, metric, accuracies[0],
+                                                                                     accuracies[1]))
+
+
+def get_distance(image1, image2, metric):
+    size = reduce((lambda x, y: x * y), image1.shape)
+
+    if metric is "L2":
+        return np.linalg.norm(image1 - image2)
+    elif metric is "COS":
+        image1_flatten = image1.flatten()
+        image2_flatten = image2.flatten()
+        # Want the negative because I order them in descending order
+        return -np.dot(image1_flatten, image2_flatten) / (
+                np.linalg.norm(image1_flatten) * np.linalg.norm(image2_flatten))
+
+
+def search_in_embeddings(input_index, nr_matches, encoder, metric):
+    image_database = get_image_database(encoder)
+    enc_images = get_val_database(encoder)
+    enc_image = enc_images[input_index]
+
+    distance_to_images = np.array([get_distance(enc_image, image, metric) for image in image_database])
+    distances_with_images = np.stack((distance_to_images, np.arange(0, x_train.shape[0], 1)), axis=-1)
+    top_sorted_distances = distances_with_images[distances_with_images[:, 0].argsort()[:nr_matches]]
+    top_images_index = top_sorted_distances[:, -1].astype(int)
+    return top_images_index
+
+
+def search_in_orig_images(input_index, nr_matches, metric):
+    input_image = x_test[input_index]
+    distance_to_images = np.array([get_distance(input_image, image, metric) for image in x_train])
+    distances_with_images = np.stack((distance_to_images, np.arange(0, x_train.shape[0], 1)), axis=-1)
+    top_sorted_distances = distances_with_images[distances_with_images[:, 0].argsort()[:nr_matches]]
+    top_images_index = top_sorted_distances[:, -1].astype(int)
+    return top_images_index
 
 
 def gallery(array, ncols=3):
@@ -75,32 +91,69 @@ def gallery(array, ncols=3):
     return result
 
 
-# Load previsouly trained model
-model_name = 'cifar/autoencoder_conv_mse.h5'
-autoencoder = load_model(model_name)
-encoder = Model(inputs=autoencoder.input, outputs=autoencoder.get_layer('encoder').output)
+def process_image(encoder, index, model_name, nr_matches, metric="MSE", use_embeddings=True):
+    if use_embeddings:
+        results_index = search_in_embeddings(index, nr_matches,
+                                             encoder, metric)
+    else:
+        results_index = search_in_orig_images(index,
+                                              nr_matches, metric)
+    # images_to_plot = x_train[results_index]
+    # images_plot = gallery(resize_images(images_to_plot))
+    # plt.title("Results by {} with metric {}".format(model_name, metric))
+    # plt.imshow(images_plot)
+    # plt.show()
+    return get_single_accuracy(index, results_index, 5), get_single_accuracy(index, results_index, 10)
 
 
 def main():
-    query_img = get_random_image()
-    resized_img = cv2.resize(query_img, (280, 280))
-    cv2.imshow('query img resized', resized_img)
-    cv2.waitKey()
+    # Load previsouly trained model
+    model_name = 'cifar/autoencoder_dense_binary.h5'
+    autoencoder = load_model(model_name)
+    encoder = Model(inputs=autoencoder.input, outputs=autoencoder.get_layer('encoder').output)
 
-    results_index = search_in_embeddings(query_img, 9)
-    images_to_plot = x_train[results_index]
-    images_plot = gallery(resize_images(images_to_plot))
-    plt.title("Results by embeddings {}".format(model_name))
-    plt.imshow(images_plot)
-    plt.show()
+    path = "results.txt"
+    nr_matches = 10
+    showed = False
+    batch_size = 500
 
-    results_index = search_in_orig_images(query_img, 9)
-    images_to_plot = x_train[results_index]
-    images_plot = gallery(resize_images(images_to_plot))
-    plt.title("Results by originals")
-    plt.imshow(images_plot)
-    # plt.show()
-    cv2.waitKey()
+    indexes = np.random.choice(x_test.shape[0], batch_size)
+
+    for metric in ["L2", "COS"]:
+
+        accuracy_5_embed = 0
+        accuracy_10_embed = 0
+        accuracy_5_orig = 0
+        accuracy_10_orig = 0
+
+        for image_index in indexes:
+            query_img = x_test[image_index]
+            # if not showed:
+            #     resized_img = cv2.resize(query_img, (280, 280))
+            #     plt.title('Query img resized')
+            #     plt.imshow(resized_img)
+            #     plt.show()
+            #     # showed = True
+
+            accuracy_5_embed_iter, accuracy_10_embed_iter = process_image(encoder, image_index, model_name, nr_matches,
+                                                                          metric)
+            accuracy_5_embed += accuracy_5_embed_iter
+            accuracy_10_embed += accuracy_10_embed_iter
+
+            accuracy_5_orig_iter, accuracy_10_orig_iter = process_image(encoder, image_index, "Original images",
+                                                                        nr_matches,
+                                                                        metric,
+                                                                        use_embeddings=False)
+            accuracy_5_orig += accuracy_5_orig_iter
+            accuracy_10_orig += accuracy_10_orig_iter
+
+        accuracy_5_embed = np.sum(accuracy_5_embed) / (5 * batch_size)
+        accuracy_10_embed = np.sum(accuracy_10_embed) / (10 * batch_size)
+        accuracy_5_orig = np.sum(accuracy_5_orig) / (5 * batch_size)
+        accuracy_10_orig = np.sum(accuracy_10_orig) / (10 * batch_size)
+
+        save_results(accuracy_5_embed, accuracy_10_embed, metric=metric, model_name=model_name, path=path)
+        save_results(accuracy_5_orig, accuracy_10_orig, metric=metric, model_name="Original images", path=path)
 
 
 if __name__ == '__main__':
