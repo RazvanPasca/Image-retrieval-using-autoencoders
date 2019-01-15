@@ -1,8 +1,8 @@
 import os
 from functools import reduce
-
-import cv2
 import numpy as np
+from scipy.misc import imresize as resize
+from scipy.misc import imread
 from keras.datasets import cifar10
 from keras.models import Model
 from keras.models import load_model
@@ -25,13 +25,14 @@ def get_val_database(encoder):
 
 
 def load_image(path):
-    image = cv2.imread(os.path.join(os.curdir, path))
-    image = cv2.resize(image, (32, 32))
+    image = imread(os.path.join(os.curdir, path))
+    image = resize(image, (32, 32))
     return image.astype('float32') / 255.
 
 
 def resize_images(images, size=280):
-    return np.array([cv2.resize(image, (size, size)) for image in images])
+    print(images.shape)
+    return np.array([resize(image, (size, size)) for image in images])
 
 
 def get_single_accuracy(target_index, top_images_index, rank):
@@ -129,7 +130,7 @@ def main():
         for image_index in indexes:
             query_img = x_test[image_index]
             # if not showed:
-            #     resized_img = cv2.resize(query_img, (280, 280))
+            #     resized_img = resize(query_img, (280, 280))
             #     plt.title('Query img resized')
             #     plt.imshow(resized_img)
             #     plt.show()
