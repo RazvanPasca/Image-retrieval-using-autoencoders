@@ -1,5 +1,5 @@
 import os
-
+import pdb
 import matplotlib.pyplot as plt
 import numpy as np
 from keras.datasets import cifar10
@@ -19,11 +19,11 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 
 def main():
-    name = 'autoencoder_conv_mse.h5'
+    name = 'autoencoder_3lay_sparse_sigmoid_class_4v1_100e.h5'
     reconstr = 'reconstructions/'
     print('Loading model :')
     # Load previously trained autoencoder
-    autoencoder = load_model('cifar/' + name)
+    autoencoder = load_model('models/' + name)
     # images_index = np.random.choice(x_test.shape[0], nr_images)
     images_index = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110]
 
@@ -32,7 +32,9 @@ def main():
     fig = plt.imshow(orig_images)
     plt.savefig(reconstr + 'originals_val {}.{}'.format(name[:-3], 'png'))
 
-    images = autoencoder.predict(to_predict.reshape(nr_images, x_test.shape[1], x_test.shape[2], 3))
+    images = autoencoder.predict(to_predict.reshape(nr_images, x_test.shape[1], x_test.shape[2], 3))[0]
+   # pdb.set_trace()    
+    #breakpoint()
     results = gallery(resize_images(images, 280))
     fig = plt.imshow(results)
     plt.savefig(reconstr + 'reconstruction_val {}.{}'.format(name[:-3], 'png'))
@@ -42,7 +44,7 @@ def main():
     fig = plt.imshow(orig_images)
     plt.savefig(reconstr + 'originals_train {}.{}'.format(name[:-3], 'png'))
 
-    images = autoencoder.predict(to_predict.reshape(nr_images, x_test.shape[1], x_test.shape[2], 3))
+    images = autoencoder.predict(to_predict.reshape(nr_images, x_test.shape[1], x_test.shape[2], 3))[0]
     results = gallery(resize_images(images, 280))
     fig = plt.imshow(results)
     plt.savefig(reconstr + 'reconstruction_train {}.{}'.format(name[:-3], 'png'))

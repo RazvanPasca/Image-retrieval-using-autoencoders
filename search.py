@@ -1,12 +1,15 @@
 import os
 from functools import reduce
 import numpy as np
+import pdb
 from scipy.misc import imresize as resize
 from scipy.misc import imread
 from keras.datasets import cifar10
 from keras.models import Model
 from keras.models import load_model
 import matplotlib.pyplot as plt
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
 # Load mnist dataset
 (x_train, y_train), (x_test, y_test) = cifar10.load_data()
@@ -31,10 +34,10 @@ def load_image(path):
 
 
 def resize_images(images, size=280):
-    print(images.shape)
     return np.array([resize(image, (size, size)) for image in images])
 
 
+"""Returns the accuracy for one image search i.e. How many images in the top rank images have the same class as the searched one"""
 def get_single_accuracy(target_index, top_images_index, rank):
     true_positives = y_test[target_index] == y_train[top_images_index[:rank]]
     return true_positives
@@ -99,26 +102,35 @@ def process_image(encoder, index, model_name, nr_matches, metric="MSE", use_embe
     else:
         results_index = search_in_orig_images(index,
                                               nr_matches, metric)
-    # images_to_plot = x_train[results_index]
-    # images_plot = gallery(resize_images(images_to_plot))
-    # plt.title("Results by {} with metric {}".format(model_name, metric))
-    # plt.imshow(images_plot)
-    # plt.show()
-    return get_single_accuracy(index, results_index, 5), get_single_accuracy(index, results_index, 10)
+
+    accuracies = get_single_accuracy(index, results_index, 5), get_single_accuracy(index, results_index, 10)
+    if np.sum(accuracies[0]) / accuracies[0].size > 0.69 or np.sum(accuracies[1]) / accuracies[1].size> 0.59:
+        #pdb.set_trace()
+        images_to_plot = x_train[results_index]
+        images_plot = gallery(resize_images(images_to_plot))
+        plt.imshow(images_plot)
+        plt.savefig(name + "/Results for {} with {} metric .png".format(index, metric))
+
+    return accuracies
+
+
+name = 'autoencoder_sparse_mse_class'
 
 
 def main():
     # Load previsouly trained model
-    model_name = 'cifar/autoencoder_dense_binary.h5'
+
+    model_name = 'models/' + name+'.h5'
     autoencoder = load_model(model_name)
     encoder = Model(inputs=autoencoder.input, outputs=autoencoder.get_layer('encoder').output)
 
     path = "results.txt"
-    nr_matches = 10
+    nr_matches = 12
     showed = False
-    batch_size = 500
-
+    batch_size =200 
+    np.random.seed(10)
     indexes = np.random.choice(x_test.shape[0], batch_size)
+    indexes[0] = 10
 
     for metric in ["L2", "COS"]:
 
@@ -129,33 +141,27 @@ def main():
 
         for image_index in indexes:
             query_img = x_test[image_index]
-            # if not showed:
-            #     resized_img = resize(query_img, (280, 280))
-            #     plt.title('Query img resized')
-            #     plt.imshow(resized_img)
-            #     plt.show()
-            #     # showed = True
-
             accuracy_5_embed_iter, accuracy_10_embed_iter = process_image(encoder, image_index, model_name, nr_matches,
                                                                           metric)
             accuracy_5_embed += accuracy_5_embed_iter
             accuracy_10_embed += accuracy_10_embed_iter
 
-            accuracy_5_orig_iter, accuracy_10_orig_iter = process_image(encoder, image_index, "Original images",
+            """accuracy_5_orig_iter, accuracy_10_orig_iter = process_image(encoder, image_index, "Original images",
                                                                         nr_matches,
                                                                         metric,
                                                                         use_embeddings=False)
             accuracy_5_orig += accuracy_5_orig_iter
             accuracy_10_orig += accuracy_10_orig_iter
-
+"""
         accuracy_5_embed = np.sum(accuracy_5_embed) / (5 * batch_size)
         accuracy_10_embed = np.sum(accuracy_10_embed) / (10 * batch_size)
-        accuracy_5_orig = np.sum(accuracy_5_orig) / (5 * batch_size)
-        accuracy_10_orig = np.sum(accuracy_10_orig) / (10 * batch_size)
+        #accuracy_5_orig = np.sum(accuracy_5_orig) / (5 * batch_size)
+        #accuracy_10_orig = np.sum(accuracy_10_orig) / (10 * batch_size)
 
         save_results(accuracy_5_embed, accuracy_10_embed, metric=metric, model_name=model_name, path=path)
-        save_results(accuracy_5_orig, accuracy_10_orig, metric=metric, model_name="Original images", path=path)
+        #save_results(accuracy_5_orig, accuracy_10_orig, metric=metric, model_name="Original images", path=path)
 
 
 if __name__ == '__main__':
     main()
+
